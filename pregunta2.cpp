@@ -1,116 +1,204 @@
 #include <iostream>
 #include <string>
 #include <cctype>
-#include <stdexcept>
 
 using namespace std;
 
-struct EvalResult {
+struct ResultadoEval {
     bool ok;
-    long long value;
+    long long valor;
     string error;
 };
 
-class Parser {
-public:
-    explicit Parser(const string& s) : str(s), i(0) {}
-
-    EvalResult solve() {
-        try {
-            skipSpaces();
-            if (i >= str.size()) throw runtime_error("Expresión vacía.");
-            long long val = parseExpr();
-            skipSpaces();
-            if (i != str.size()) throw runtime_error(string("Carácter inesperado: '") + str[i] + "'.");
-            return {true, val, ""};
-        } catch (const exception& e) {
-            return {false, 0, e.what()};
-        }
-    }
-
-private:
-    const string& str;
-    size_t i;
-
-    void skipSpaces() {
-        while (i < str.size() && isspace(static_cast<unsigned char>(str[i]))) i++;
-    }
-
-    long long parseExpr() {
-        long long left = parseTerm();
-        while (true) {
-            skipSpaces();
-            if (i >= str.size()) break;
-            char op = str[i];
-            if (op != '+' && op != '-') break;
-            ++i;
-            long long right = parseTerm();
-            if (op == '+') left += right;
-            else left -= right;
-        }
-        return left;
-    }
-
-    long long parseTerm() {
-        long long left = parseFactor();
-        while (true) {
-            skipSpaces();
-            if (i >= str.size()) break;
-            char op = str[i];
-            if (op != '*' && op != '/') break;
-            ++i;
-            long long right = parseFactor();
-            if (op == '*') left *= right;
-            else {
-                if (right == 0) throw runtime_error("División por cero.");
-                left /= right;
-            }
-        }
-        return left;
-    }
-
-    long long parseFactor() {
-        skipSpaces();
-        if (i >= str.size()) throw runtime_error("Se esperaba un número o '(' al final.");
-        if (str[i] == '(') {
-            ++i;
-            long long val = parseExpr();
-            skipSpaces();
-            if (i >= str.size() || str[i] != ')') throw runtime_error("Paréntesis no cerrado: falta ')'.");
-            ++i;
-            return val;
-        }
-        if (str[i] == '+' || str[i] == '-') throw runtime_error("Número con signo no permitido (solo números positivos).");
-        return parseNumber();
-    }
-
-    long long parseNumber() {
-        skipSpaces();
-        if (i >= str.size() || !isdigit(static_cast<unsigned char>(str[i]))) {
-            char c = (i < str.size() ? str[i] : '\0');
-            if (c == '\0') throw runtime_error("Se esperaba un número, pero terminó la expresión.");
-            throw runtime_error(string("Se esperaba un número, pero se encontró: '") + c + "'.");
-        }
-        long long num = 0;
-        while (i < str.size() && isdigit(static_cast<unsigned char>(str[i]))) {
-            int d = str[i] - '0';
-            num = num * 10 + d;
-            ++i;
-        }
-        return num;
-    }
+struct NodoChar {
+    char dato;
+    NodoChar* next;
+    NodoChar(char d, NodoChar* n = nullptr) : dato(d), next(n) {}
 };
 
-EvalResult resolverEcuacion(const string& ecuacion) {
-    Parser p(ecuacion);
-    return p.solve();
+class PilaChar {
+public:
+    PilaChar() : tope(nullptr) {}
+    ~PilaChar() { while (!vacia()) pop(); }
+
+    bool vacia() const { return tope == nullptr; }
+
+    void push(char x) { tope = new NodoChar(x, tope); }
+
+    bool pop() {
+        if (vacia()) return false;
+        NodoChar* t = tope;
+        tope = tope->next;
+        delete t;
+        return true;
+    }
+
+    char top() const { return tope->dato; }
+
+private:
+    NodoChar* tope;
+};
+
+struct NodoLL {
+    long long dato;
+    NodoLL* next;
+    NodoLL(long long d, NodoLL* n = nullptr) : dato(d), next(n) {}
+};
+
+class PilaLL {
+public:
+    PilaLL() : tope(nullptr) {}
+    ~PilaLL() { while (!vacia()) pop(); }
+
+    bool vacia() const { return tope == nullptr; }
+
+    void push(long long x) { tope = new NodoLL(x, tope); }
+
+    bool pop() {
+        if (vacia()) return false;
+        NodoLL* t = tope;
+        tope = tope->next;
+        delete t;
+        return true;
+    }
+
+    long long top() const { return tope->dato; }
+
+private:
+    NodoLL* tope;
+};
+
+static bool esOperador(char c) {
+    return c == '+' || c == '-' || c == '*' || c == '/';
 }
 
-int main() {
-    string eq;
-    getline(cin, eq);
-    EvalResult r = resolverEcuacion(eq);
-    if (r.ok) cout << r.value << "\n";
-    else cout << "Error: " << r.error << "\n";
+static int precedencia(char op) {
+    if (op == '*' || op == '/') return 2;
+    if (op == '+' || op == '-') return 1;
     return 0;
+}
+
+static bool aplicarOp(long long a, long long b, char op, long long& out, string& error) {
+    if (op == '+') { out = a + b; return true; }
+    if (op == '-') { out = a - b; return true; }
+    if (op == '*') { out = a * b; return true; }
+    if (op == '/') {
+        if (b == 0) { error = "División por cero."; return false; }
+        out = a / b;
+        return true;
+    }
+    error = "Operador inválido.";
+    return false;
+}
+
+static bool aplicarTope(PilaLL& valores, PilaChar& ops, string& error) {
+    if (ops.vacia()) { error = "Faltan operadores."; return false; }
+
+    char op = ops.top();
+    ops.pop();
+
+    if (valores.vacia()) { error = "Faltan operandos para un operador."; return false; }
+    long long b = valores.top();
+    valores.pop();
+
+    if (valores.vacia()) { error = "Faltan operandos para un operador."; return false; }
+    long long a = valores.top();
+    valores.pop();
+
+    long long res = 0;
+    if (!aplicarOp(a, b, op, res, error)) return false;
+
+    valores.push(res);
+    return true;
+}
+
+ResultadoEval resolverEcuacionEnterosPositivos(const string& ecuacion) {
+    PilaChar ops;
+    PilaLL valores;
+
+    bool esperaOperando = true;
+
+    for (size_t i = 0; i < ecuacion.size(); ) {
+        char c = ecuacion[i];
+
+        if (isspace(static_cast<unsigned char>(c))) { ++i; continue; }
+
+        if (isdigit(static_cast<unsigned char>(c))) {
+            if (!esperaOperando) return {false, 0, "Falta un operador entre números."};
+
+            long long num = 0;
+            while (i < ecuacion.size() && isdigit(static_cast<unsigned char>(ecuacion[i]))) {
+                int d = ecuacion[i] - '0';
+                num = num * 10 + d;
+                ++i;
+            }
+
+            if (num <= 0) return {false, 0, "Solo se permiten enteros positivos (> 0)."};
+
+            valores.push(num);
+            esperaOperando = false;
+            continue;
+        }
+
+        if (c == '(') {
+            if (!esperaOperando) return {false, 0, "Falta un operador antes de '('."};
+            ops.push('(');
+            ++i;
+            continue;
+        }
+
+        if (c == ')') {
+            if (esperaOperando) return {false, 0, "Paréntesis de cierre sin operando antes."};
+
+            bool encontroApertura = false;
+            while (!ops.vacia()) {
+                char top = ops.top();
+                if (top == '(') {
+                    ops.pop();
+                    encontroApertura = true;
+                    break;
+                }
+                string err;
+                if (!aplicarTope(valores, ops, err)) return {false, 0, err};
+            }
+            if (!encontroApertura) return {false, 0, "Paréntesis no balanceados: sobra ')'."};
+
+            ++i;
+            esperaOperando = false;
+            continue;
+        }
+
+        if (esOperador(c)) {
+            if (esperaOperando) return {false, 0, "Operador en posición inválida (no se permiten signos unarios)."};
+
+            while (!ops.vacia() && ops.top() != '(' && precedencia(ops.top()) >= precedencia(c)) {
+                string err;
+                if (!aplicarTope(valores, ops, err)) return {false, 0, err};
+            }
+
+            ops.push(c);
+            ++i;
+            esperaOperando = true;
+            continue;
+        }
+
+        return {false, 0, string("Carácter inválido: '") + c + "'."};
+    }
+
+    if (esperaOperando) return {false, 0, "Expresión incompleta: termina en operador o '('."};
+
+    while (!ops.vacia()) {
+        if (ops.top() == '(') return {false, 0, "Paréntesis no balanceados: falta ')'."};
+        string err;
+        if (!aplicarTope(valores, ops, err)) return {false, 0, err};
+    }
+
+    if (valores.vacia()) return {false, 0, "No se pudo evaluar la expresión."};
+
+    long long resultadoFinal = valores.top();
+    valores.pop();
+
+    if (!valores.vacia()) return {false, 0, "Expresión mal descrita: sobran operandos."};
+
+    return {true, resultadoFinal, ""};
 }
